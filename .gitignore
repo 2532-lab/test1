@@ -1,0 +1,16 @@
+# CCS Build output
+Debug/
+
+# Clangd
+.clangd
+.clangd/
+
+# IDE
+.settings/
+.theia/
+
+# SysConfig generated
+*.syscfg
+
+# Generated docs
+README.html
