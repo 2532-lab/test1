@@ -9,8 +9,5 @@ Debug/
 .settings/
 .theia/
 
-# SysConfig generated
-*.syscfg
-
 # Generated docs
 README.html
