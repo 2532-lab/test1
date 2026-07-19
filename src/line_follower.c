@@ -1,15 +1,46 @@
 /**
  * @file    line_follower.c
- * @brief   灰度循迹 —— P控制 + 传感器引导直角弯（电机宏定义已修正）
+ * @brief   五路灰度传感器循迹 —— P 控制 + 直角弯 pivot
  *
- * == 整体架构 ==
+ * ======================== 整体架构 ========================
+ *
  *   每帧调用一次 LineFollower_Update()，内部分三个阶段：
- *     阶段1. PIVOT — 传感器引导原地旋转，转到线居中为止
- *     阶段2. 触发检测 — 外侧两路同黑+对侧全白 → 立即进入PIVOT
- *     阶段3. 正常循迹 — 纯P控制，position越大差速越大，动态降速
+ *     1. PIVOT 原地旋转（传感器引导）
+ *     2. 直角弯检测（外侧两路同黑 → 进入 PIVOT）
+ *     3. 正常循迹（P 控制器 = 位置偏差 → 左右差速）
  *
- * == 电机宏定义（已修正）==
- *   函数名 = 物理轮子，Motor_turn_up 参数不再左右对调
+ * ======================== 传感器映射 ========================
+ *
+ *   S1(最左)     S2        S3(中)     S4        S5(最右)
+ *   PB27         PA29      PB23       PB12      PA12
+ *
+ *   电平: 0=黑线, 1=白面
+ *   权重: -2000 / -1000 / 0 / +1000 / +2000
+ *
+ * ======================== 直角弯检测 ========================
+ *
+ *   右直角: (S4==0 或 S5==0) 且 S1+S2 全白 → turn_dir=+1
+ *   左直角: (S1==0 或 S2==0) 且 S4+S5 全白 → turn_dir=-1
+ *   启动保护: 上电 30 帧内不检测
+ *
+ * ======================== PIVOT 旋转 ========================
+ *
+ *   右转: Motor_SetAllForward() + Motor_SetRightReverse() → 车右转
+ *   左转: Motor_SetAllForward() + Motor_SetLeftReverse()  → 车左转
+ *   停止: |pos|<600 连续3帧 或 超时800帧
+ *
+ * ======================== P 控制器公式 ========================
+ *
+ *   rpm_diff = Kp × position
+ *   dp       = rpm_diff × (50 / max_rpm_diff)
+ *   left     = bp + dp, right = bp - dp
+ *   bp       = 33 - |pos|×0.018 (动态基础速度)
+ *
+ * ======================== 依赖 ========================
+ *
+ *   motor.h      全部方向/PWM 操作通过 motor.c API，不直接碰 GPIO
+ *   grayscale.h  传感器读数 + 位置计算
+ *   PID.h        增量式 PID（速度环存根，未启用）
  */
 
 #include "line_follower.h"
@@ -18,74 +49,39 @@
 #include <string.h>
 
 /* ===================================================================
- *  方向 GPIO 控制（H 桥：Pin1=0 Pin2=1 → 前进）
+ *  SpeedCtrl 速度闭环存根（未启用）
  * =================================================================== */
 
-/** 左侧两轮倒退（左转 pivot 时使用） */
-static void mdir_left_rev(void) {
-    DL_GPIO_setPins  (GPIO_MOTOR_PIN_front_left_1_PORT, GPIO_MOTOR_PIN_front_left_1_PIN);
-    DL_GPIO_clearPins(GPIO_MOTOR_PIN_front_left_2_PORT, GPIO_MOTOR_PIN_front_left_2_PIN);
-    DL_GPIO_setPins  (GPIO_MOTOR_PIN_back_left_1_PORT,  GPIO_MOTOR_PIN_back_left_1_PIN);
-    DL_GPIO_clearPins(GPIO_MOTOR_PIN_back_left_2_PORT,  GPIO_MOTOR_PIN_back_left_2_PIN);
-}
-
-/** 右侧两轮倒退（右转 pivot 时使用） */
-static void mdir_right_rev(void) {
-    DL_GPIO_setPins  (GPIO_MOTOR_PIN_front_right_2_PORT, GPIO_MOTOR_PIN_front_right_2_PIN);
-    DL_GPIO_clearPins(GPIO_MOTOR_PIN_front_right_1_PORT, GPIO_MOTOR_PIN_front_right_1_PIN);
-    DL_GPIO_setPins  (GPIO_MOTOR_PIN_back_right_1_PORT,  GPIO_MOTOR_PIN_back_right_1_PIN);
-    DL_GPIO_clearPins(GPIO_MOTOR_PIN_back_right_2_PORT,  GPIO_MOTOR_PIN_back_right_2_PIN);
-}
-
-/** 全部四轮前进方向 */
-static void mdir_fwd(void) {
-    /* 右前轮 */
-    DL_GPIO_clearPins(GPIO_MOTOR_PIN_front_right_1_PORT, GPIO_MOTOR_PIN_front_right_1_PIN);
-    DL_GPIO_setPins  (GPIO_MOTOR_PIN_front_right_2_PORT, GPIO_MOTOR_PIN_front_right_2_PIN);
-    /* 右后轮 */
-    DL_GPIO_clearPins(GPIO_MOTOR_PIN_back_right_1_PORT,  GPIO_MOTOR_PIN_back_right_1_PIN);
-    DL_GPIO_setPins  (GPIO_MOTOR_PIN_back_right_2_PORT,  GPIO_MOTOR_PIN_back_right_2_PIN);
-    /* 左前轮 */
-    DL_GPIO_clearPins(GPIO_MOTOR_PIN_front_left_1_PORT,  GPIO_MOTOR_PIN_front_left_1_PIN);
-    DL_GPIO_setPins  (GPIO_MOTOR_PIN_front_left_2_PORT,  GPIO_MOTOR_PIN_front_left_2_PIN);
-    /* 左后轮 */
-    DL_GPIO_clearPins(GPIO_MOTOR_PIN_back_left_1_PORT,   GPIO_MOTOR_PIN_back_left_1_PIN);
-    DL_GPIO_setPins  (GPIO_MOTOR_PIN_back_left_2_PORT,   GPIO_MOTOR_PIN_back_left_2_PIN);
-}
-
-/** 全部 PWM 置零 */
-static void mstop(void) {
-    Set_Motor_FrontLeft_Speed(0);  Set_Motor_BackLeft_Speed(0);
-    Set_Motor_FrontRight_Speed(0); Set_Motor_BackRight_Speed(0);
-}
-
-/* ===================================================================
- *  SpeedCtrl 存根（速度闭环——未启用）
- * =================================================================== */
-
-static SpeedCtrlCfg_t sc_def(void) {
+static SpeedCtrlCfg_t sc_def(void)
+{
     SpeedCtrlCfg_t c;
-    c.Kp=1.5f; c.Ki=1.0f; c.Kd=0; c.dt=0.01f; c.max_duty=80;
+    c.Kp = 1.5f; c.Ki = 1.0f; c.Kd = 0;
+    c.dt = 0.01f; c.max_duty = 80;
     return c;
 }
 
-void SpeedCtrl_Init(SpeedCtrl_t *s, const SpeedCtrlCfg_t *c) {
-    memset(s,0,sizeof(*s));
+void SpeedCtrl_Init(SpeedCtrl_t *s, const SpeedCtrlCfg_t *c)
+{
+    memset(s, 0, sizeof(*s));
     s->cfg = c ? *c : sc_def();
-    IncPID_Init(&s->pid, s->cfg.Kp, s->cfg.Ki, s->cfg.Kd, s->cfg.dt, 0, 80);
+    IncPID_Init(&s->pid, s->cfg.Kp, s->cfg.Ki, s->cfg.Kd,
+                s->cfg.dt, 0, 80);
     IncPID_SetOutput(&s->pid, 25);
     s->output_duty = 25;
 }
 
-int16_t SpeedCtrl_Update(SpeedCtrl_t *s, float t, float a) {
-    (void)t; (void)a; (void)s; return 0;
+int16_t SpeedCtrl_Update(SpeedCtrl_t *s, float t, float a)
+{
+    (void)t; (void)a; (void)s;
+    return 0;
 }
 
 /* ===================================================================
  *  默认配置
  * =================================================================== */
 
-LineFollowerCfg_t LineFollower_GetDefaultCfg(void) {
+LineFollowerCfg_t LineFollower_GetDefaultCfg(void)
+{
     LineFollowerCfg_t c;
     c.Kp_pos       = 0.20f;
     c.Ki_pos       = 0;
@@ -98,7 +94,8 @@ LineFollowerCfg_t LineFollower_GetDefaultCfg(void) {
     return c;
 }
 
-void LineFollower_Init(LineFollower_t *lf, const LineFollowerCfg_t *cfg) {
+void LineFollower_Init(LineFollower_t *lf, const LineFollowerCfg_t *cfg)
+{
     if (!lf) return;
     memset(lf, 0, sizeof(*lf));
     lf->cfg = cfg ? *cfg : LineFollower_GetDefaultCfg();
@@ -109,20 +106,18 @@ void LineFollower_Init(LineFollower_t *lf, const LineFollowerCfg_t *cfg) {
 /* ===================================================================
  *  主更新函数
  * =================================================================== */
-void LineFollower_Update(LineFollower_t *lf, float rl, float rr) {
+void LineFollower_Update(LineFollower_t *lf, float rl, float rr)
+{
     if (!lf) return;
     float enc_l = rl, enc_r = rr;
 
-    /* ---- 读取灰度传感器 ---- */
+    /* 读取传感器 */
     Grayscale_Read(&lf->gs);
     lf->position = Grayscale_GetPosition(&lf->gs);
     float pos = (float)lf->position;
 
     /* ================================================================
      *  阶段1：PIVOT 原地旋转
-     *
-     *  turn_dir=+1（右转）→ 右侧倒退 + 左侧前进 → 车体右转
-     *  turn_dir=-1（左转）→ 左侧倒退 + 右侧前进 → 车体左转
      * ================================================================ */
     if (lf->turn_state == LF_TURN_PIVOT) {
 
@@ -130,8 +125,9 @@ void LineFollower_Update(LineFollower_t *lf, float rl, float rr) {
             && lf->gs.line_detected
             && fabsf(pos) < 600.0f) {
             if (++lf->turn_found_cnt > 3) {
-                mstop();
-                mdir_fwd();
+                /* 旋转完成 */
+                Motor_StopAll();
+                Motor_SetAllForward();
                 lf->turn_state     = LF_TURN_IDLE;
                 lf->run_frames     = 0;
                 lf->rpm_diff       = 0;
@@ -145,44 +141,37 @@ void LineFollower_Update(LineFollower_t *lf, float rl, float rr) {
         }
 
         if (++lf->turn_timeout > 800) {
-            mstop();
-            mdir_fwd();
+            Motor_StopAll();
+            Motor_SetAllForward();
             lf->turn_state = LF_TURN_IDLE;
             lf->run_frames = 0;
             return;
         }
 
+        /* 执行 pivot：一侧前进 + 另一侧倒退 */
         uint8_t sd = 65;
         if (lf->turn_dir > 0) {
             /* 右转：右侧倒退 + 左侧前进 */
-            mdir_fwd();
-            mdir_right_rev();
+            Motor_SetAllForward();
+            Motor_SetRightReverse();
         } else {
             /* 左转：左侧倒退 + 右侧前进 */
-            mdir_fwd();
-            mdir_left_rev();
+            Motor_SetAllForward();
+            Motor_SetLeftReverse();
         }
-        Set_Motor_FrontLeft_Speed(sd);
-        Set_Motor_BackLeft_Speed(sd);
-        Set_Motor_FrontRight_Speed(sd);
-        Set_Motor_BackRight_Speed(sd);
+        Motor_SetAllSpeed(sd);
         lf->left_duty = lf->right_duty = sd;
         return;
     }
 
     /* ================================================================
      *  阶段2：直角弯检测
-     *
-     *  传感器映射：S1/S2=右侧, S4/S5=左侧
-     *  右直角：右侧(S1/S2)有黑线 + 左侧(S4+S5)全白
-     *  左直角：左侧(S4/S5)有黑线 + 右侧(S1+S2)全白
      * ================================================================ */
     if (lf->gs.line_detected) lf->run_frames++;
-    if (lf->turn_state == LF_TURN_IDLE && lf->run_frames > 30) {
 
+    if (lf->turn_state == LF_TURN_IDLE && lf->run_frames > 30) {
         bool right_turn = (!lf->gs.raw.s4 || !lf->gs.raw.s5) &&
                           (lf->gs.raw.s1 && lf->gs.raw.s2);
-
         bool left_turn  = (!lf->gs.raw.s1 || !lf->gs.raw.s2) &&
                           (lf->gs.raw.s4 && lf->gs.raw.s5);
 
@@ -191,15 +180,16 @@ void LineFollower_Update(LineFollower_t *lf, float rl, float rr) {
             lf->turn_dir       = right_turn ? 1 : -1;
             lf->turn_timeout   = 0;
             lf->turn_found_cnt = 0;
-            mstop();
+            Motor_StopAll();
             return;
         }
     }
 
     /* ================================================================
-     *  阶段3：正常循迹 —— 纯 P 控制器
+     *  阶段3：正常循迹 —— P 控制器
      * ================================================================ */
 
+    /* 丢线处理 */
     if (!lf->gs.line_detected) {
         lf->lost_count++;
         lf->line_lost = true;
@@ -218,14 +208,17 @@ void LineFollower_Update(LineFollower_t *lf, float rl, float rr) {
     {
         float kp = lf->cfg.Kp_pos;
         lf->rpm_diff = kp * pos;
-        if (lf->rpm_diff >  lf->cfg.max_rpm_diff) lf->rpm_diff =  lf->cfg.max_rpm_diff;
-        if (lf->rpm_diff < -lf->cfg.max_rpm_diff) lf->rpm_diff = -lf->cfg.max_rpm_diff;
-        if (fabsf(lf->rpm_diff) < lf->cfg.deadband_pos) lf->rpm_diff = 0;
+        if (lf->rpm_diff >  lf->cfg.max_rpm_diff)
+            lf->rpm_diff =  lf->cfg.max_rpm_diff;
+        if (lf->rpm_diff < -lf->cfg.max_rpm_diff)
+            lf->rpm_diff = -lf->cfg.max_rpm_diff;
+        if (fabsf(lf->rpm_diff) < lf->cfg.deadband_pos)
+            lf->rpm_diff = 0;
         lf->last_rpm_diff = lf->rpm_diff;
     }
 
 out:
-    /* ---- PWM 输出（宏定义已修正，不再左右对调）---- */
+    /* PWM 输出 */
     {
         float dp = lf->rpm_diff * (50.0f / lf->cfg.max_rpm_diff);
         if (dp >  42) dp =  42;
@@ -252,7 +245,7 @@ out:
         if (lf->right_duty < 3)  lf->right_duty = 3;
         if (lf->right_duty > 80) lf->right_duty = 80;
 
-        /* 参数直接对应物理轮子：right_duty→右轮, left_duty→左轮 */
+        /* 宏定义已修正：right→右轮, left→左轮，不再对调 */
         Motor_turn_up(0,
                       (uint8_t)lf->right_duty, (uint8_t)lf->right_duty,
                       (uint8_t)lf->left_duty,  (uint8_t)lf->left_duty);
@@ -260,11 +253,12 @@ out:
 }
 
 /* ===================================================================
- *  停止函数
+ *  停车
  * =================================================================== */
-void LineFollower_Stop(LineFollower_t *lf) {
-    mstop();
-    mdir_fwd();
+void LineFollower_Stop(LineFollower_t *lf)
+{
+    Motor_StopAll();
+    Motor_SetAllForward();
     if (lf) {
         lf->turn_state    = LF_TURN_IDLE;
         lf->rpm_diff      = 0;
@@ -274,6 +268,9 @@ void LineFollower_Stop(LineFollower_t *lf) {
     }
 }
 
-int16_t LineFollower_GetPosition(LineFollower_t *lf) { return lf ? lf->position : 0; }
-float   LineFollower_GetRpmDiff(LineFollower_t *lf)   { return lf ? lf->rpm_diff : 0; }
-bool    LineFollower_IsLineLost(LineFollower_t *lf)    { return lf ? lf->line_lost : true; }
+int16_t LineFollower_GetPosition(LineFollower_t *lf)
+    { return lf ? lf->position : 0; }
+float   LineFollower_GetRpmDiff(LineFollower_t *lf)
+    { return lf ? lf->rpm_diff : 0; }
+bool    LineFollower_IsLineLost(LineFollower_t *lf)
+    { return lf ? lf->line_lost : true; }
