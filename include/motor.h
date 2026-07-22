@@ -91,6 +91,18 @@ void Motor_turn_up(uint8_t direction,
 void Motor_SetAllForward(void);
 
 /**
+ * @brief   左侧两轮独立设为前进方向 (IN1=0, IN2=1)
+ *          前左 + 后左，不影响右侧。用于速度闭环中正转输出。
+ */
+void Motor_SetLeftForward(void);
+
+/**
+ * @brief   右侧两轮独立设为前进方向 (IN1=0, IN2=1)
+ *          前右 + 后右，不影响左侧。用于速度闭环中正转输出。
+ */
+void Motor_SetRightForward(void);
+
+/**
  * @brief   左侧两轮设为倒退方向 (IN1=1, IN2=0)
  *          前左 + 后左，配合 Motor_SetAllForward() 后调用实现左转 pivot
  */

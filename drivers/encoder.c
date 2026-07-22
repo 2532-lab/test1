@@ -54,10 +54,8 @@
  *  全局毫秒计数器
  *
  *  由 SysTick_Handler 每 1ms 递增。delay.h 中以 extern 声明，
- *  millis() 内联读取。encoder.c 负责定义和更新。
+ *  millis() 内联读取。实定义在 src/delay.c。
  * =================================================================== */
-
-volatile uint32_t sys_tick_ms = 0;
 
 /* ===================================================================
  *  软件编码器常量
@@ -137,6 +135,9 @@ static EncoderSw_t s_enc_sw[SW_COUNT];
 /** 上次 Encoder_GetSpeed() 时 TIMG8.CTR 的计数器快照 */
 static uint32_t s_hw_prev_count = 0;
 
+/** 各路编码器上次 GetSpeed 调用的 millis() 时间戳（用于计算真实 dt） */
+static uint32_t s_last_speed_ms[ENCODER_COUNT] = {0};
+
 /* ===================================================================
  *  硬件编码器初始化（TIMG8 → C1）
  *
@@ -190,10 +191,11 @@ void Encoder_Scan(void)
              *     A 上升沿(0→1)时 B=0 → dir=+1（下方减法：减 -1 = +1）
              *   反转（B 超前 A 90°）→ 上述全部取反
              *
-             * C3 (sw==1)：AB 相接反，方向取反即可。
+             * C3 (sw==1)：AB 相接反。不在边沿级判断，
+             * 在 Encoder_GetCount 返回值整体取负。
              */
-            if (sw == 1) {
-                /* C3：接线反相，方向判断翻转 */
+            if (0) {
+                /* 保留：如需边沿级翻转可改 if(1)，当前用 GetCount 取负代替 */
                 dir = (b_raw != 0) ? -1 : 1;
             } else {
                 dir = (b_raw != 0) ? 1 : -1;
@@ -243,7 +245,7 @@ void Encoder_Scan(void)
 
 static void Encoder_ScanTimer_Init(void)
 {
-    SysTick->LOAD = 31999U;
+    SysTick->LOAD = 31999U;           /* 1kHz: 32000 - 1 */
     SysTick->VAL  = 0;                 /* 清零当前值，防止首次中断立即触发 */
     SysTick->CTRL = SysTick_CTRL_CLKSOURCE_Msk   /* 时钟源 = CPUCLK (32MHz) */
                   | SysTick_CTRL_TICKINT_Msk     /* 使能中断 */
@@ -279,6 +281,11 @@ void Encoder_Init(void)
     /* C1: 硬件 QEI */
     Encoder_Init_HW();
     s_hw_prev_count = 0;
+
+    /* 清零 GetSpeed 时间戳（强制首次调用返回 false，初始化基准） */
+    for (int i = 0; i < ENCODER_COUNT; i++) {
+        s_last_speed_ms[i] = 0;
+    }
 
     /* C2/C3/C4: 初始化软件编码器状态 */
     memset(s_enc_sw, 0, sizeof(s_enc_sw));
@@ -323,7 +330,13 @@ int32_t Encoder_GetCount(EncoderID_t id)
 
     int sw = id - SW_FIRST_IDX;
     if (sw < 0 || sw >= SW_COUNT) return 0;
-    return s_enc_sw[sw].count;
+
+    /* C3(sw=1)：AB 相接反，整体取负修正方向 */
+    int32_t val = s_enc_sw[sw].count;
+    if (sw == 1) {
+        val = -val;
+    }
+    return val;
 }
 
 /* ===================================================================
@@ -332,6 +345,10 @@ int32_t Encoder_GetCount(EncoderID_t id)
 
 void Encoder_Reset(EncoderID_t id)
 {
+    if (id >= ENCODER_COUNT) return;
+
+    s_last_speed_ms[id] = 0;  /* 复位时间基准，下次 GetSpeed 返回 false */
+
     if (id == ENCODER_C1) {
 #ifdef TIMG8_INST
         DL_TimerG_setTimerCount(TIMG8_INST, 0);
@@ -382,14 +399,33 @@ void Encoder_ResetAll(void)
 
 bool Encoder_GetSpeed(EncoderID_t id, float dt, float *rpm)
 {
-    if (rpm == NULL || dt <= 0.0f) return false;
+    (void)dt;  /* 不再使用调用者传入的固定 dt，改用 millis() 真实间隔 */
+    if (rpm == NULL) return false;
+
+    /*
+     * ====== Fix: 用 millis() 计算真实 dt ======
+     *
+     * 旧版使用调用者传入的固定 dt（如 0.01），但实际调用频率因
+     * 主循环抖动、中断抢占而波动（8~15ms 不等）→ 测速严重不准。
+     *
+     * 新版记录每次调用的 millis() 时间戳，自动计算真实时间间隔。
+     * 首次调用（elapsed==0 或 >1s）返回 false，仅初始化时间基准。
+     */
+    uint32_t now     = millis();
+    uint32_t elapsed = now - s_last_speed_ms[id];
+    if (elapsed == 0 || elapsed > 1000) {
+        s_last_speed_ms[id] = now;
+        return false;
+    }
+    float real_dt = (float)elapsed * 0.001f;
+    s_last_speed_ms[id] = now;
 
     if (id == ENCODER_C1) {
 #ifdef TIMG8_INST
         int32_t cur  = (int32_t)DL_TimerG_getTimerCount(TIMG8_INST);
         int32_t diff = cur - (int32_t)s_hw_prev_count;
         s_hw_prev_count = (uint32_t)cur;
-        *rpm = ((float)diff / (float)ENCODER_CPR_HW) / (dt / 60.0f);
+        *rpm = ((float)diff / (float)ENCODER_CPR_HW) / (real_dt / 60.0f);
         return true;
 #else
         return false;
@@ -406,7 +442,7 @@ bool Encoder_GetSpeed(EncoderID_t id, float dt, float *rpm)
     s_enc_sw[sw].prev_count = cur;
     SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk;
 
-    *rpm = ((float)diff / (float)ENCODER_CPR) / (dt / 60.0f);
+    *rpm = ((float)diff / (float)ENCODER_CPR) / (real_dt / 60.0f);
     return true;
 }
 

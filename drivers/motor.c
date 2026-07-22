@@ -145,6 +145,34 @@ void Motor_SetAllForward(void)
                       GPIO_MOTOR_PIN_back_left_2_PIN);
 }
 
+void Motor_SetLeftForward(void)
+{
+    /* 前左轮：IN1=0, IN2=1 */
+    DL_GPIO_clearPins(GPIO_MOTOR_PIN_front_left_1_PORT,
+                      GPIO_MOTOR_PIN_front_left_1_PIN);
+    DL_GPIO_setPins  (GPIO_MOTOR_PIN_front_left_2_PORT,
+                      GPIO_MOTOR_PIN_front_left_2_PIN);
+    /* 后左轮：IN1=0, IN2=1 */
+    DL_GPIO_clearPins(GPIO_MOTOR_PIN_back_left_1_PORT,
+                      GPIO_MOTOR_PIN_back_left_1_PIN);
+    DL_GPIO_setPins  (GPIO_MOTOR_PIN_back_left_2_PORT,
+                      GPIO_MOTOR_PIN_back_left_2_PIN);
+}
+
+void Motor_SetRightForward(void)
+{
+    /* 前右轮：IN1=0, IN2=1 */
+    DL_GPIO_clearPins(GPIO_MOTOR_PIN_front_right_1_PORT,
+                      GPIO_MOTOR_PIN_front_right_1_PIN);
+    DL_GPIO_setPins  (GPIO_MOTOR_PIN_front_right_2_PORT,
+                      GPIO_MOTOR_PIN_front_right_2_PIN);
+    /* 后右轮：IN1=0, IN2=1 */
+    DL_GPIO_clearPins(GPIO_MOTOR_PIN_back_right_1_PORT,
+                      GPIO_MOTOR_PIN_back_right_1_PIN);
+    DL_GPIO_setPins  (GPIO_MOTOR_PIN_back_right_2_PORT,
+                      GPIO_MOTOR_PIN_back_right_2_PIN);
+}
+
 void Motor_SetLeftReverse(void)
 {
     /* 前左轮：IN1=1, IN2=0 */

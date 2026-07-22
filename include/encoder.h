@@ -91,10 +91,10 @@ typedef enum {
  */
 #define ENCODER_CPR             (ENCODER_PPR * 2 * ENCODER_GEAR_RATIO)
 
-/** 硬件 QEI 的 ×2 模式等效 CPR = 软件双沿一致 */
-#define ENCODER_CPR_HW          ENCODER_CPR
+/** 硬件 QEI 默认 ×4 模式（A/B 两相各双沿 = 4 边/周期） */
+#define ENCODER_CPR_HW          (ENCODER_PPR * 4 * ENCODER_GEAR_RATIO)
 
-/** 软件扫描频率（用于 Encoder_GetSpeed 的 dt 估算） */
+/** 软件扫描频率（Hz） */
 #define ENC_SCAN_FREQ_HZ        1000U
 
 /* ===================================================================

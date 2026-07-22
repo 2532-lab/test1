@@ -77,8 +77,9 @@ typedef struct {
 /** 转向状态 */
 enum {
     LF_TURN_IDLE = 0,   /**< 正常循迹 */
+    LF_TURN_BRAKE,       /**< 直角刹车：倒转减速，消耗惯性 */
     LF_TURN_PIVOT,       /**< 直角弯原地旋转中 */
-    LF_TURN_FWD          /**< 保留：旋转后直行阶段（未使用） */
+    LF_TURN_FWD          /**< 保留 */
 };
 
 /** 循迹器运行时句柄 */
@@ -101,12 +102,19 @@ typedef struct {
     bool     line_lost;           /**< 当前是否丢线（5 路全白） */
     uint16_t lost_count;          /**< 连续丢线帧数 */
 
+    /* PID 状态 */
+    float    pos_integral;        /**< 位置积分累加器 */
+    float    pos_prev;            /**< 上一帧位置（D 项备用） */
+
     /* 直角弯状态机 */
     uint8_t  turn_state;          /**< LF_TURN_IDLE / LF_TURN_PIVOT */
     int8_t   turn_dir;            /**< +1=右转, -1=左转 */
     uint16_t turn_timeout;        /**< PIVOT 帧计数（超时=800帧） */
     uint16_t run_frames;          /**< 启动后累计帧数（防误触发） */
     uint8_t  turn_found_cnt;      /**< PIVOT 寻线去抖计数器 */
+    uint8_t  turn_fwd_count;      /**< PIVOT 退出后直行恢复帧计数 */
+    int8_t   turn_candidate_dir;   /**< 直角弯候选方向：+1=右, -1=左, 0=无 */
+    uint8_t  turn_candidate_cnt;   /**< 直角弯候选连续帧计数（去抖） */
 } LineFollower_t;
 
 /* ===================================================================
