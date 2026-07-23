@@ -9,5 +9,11 @@ Debug/
 .settings/
 .theia/
 
+# Main source (not pushed)
+src/main.c
+
+# SysConfig (not pushed)
+*.syscfg
+
 # Generated docs
 README.html
