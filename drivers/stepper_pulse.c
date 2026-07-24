@@ -431,18 +431,20 @@ void stepper_pulse_set_speed(uint8_t axis, uint8_t dir, uint16_t rpm)
     } else {
         /*
          * 方向反转: stopCounter → CCR冻结 → g_busy=false →
-         *           clearIRQ → 换向 → g_busy=true → 重启
+         *           clearIRQ → 换向 → set_dir → g_busy=true → 重启
          *
          * ★ 必须先停计数器再冻结 CCR (防止 ~50% 幽灵边沿),
          *   再设 g_busy=false (防止丢真实步数到位置跟踪)。
-         */
-        g_current_dir[axis] = dir;
+         *
+         * ★ v7.1: g_current_dir 必须在 g_busy=false 之后设置,
+         *   否则挂起的中断在 ISR 门关闭前读取新方向 → 1步记账错误。 */
         if (axis == STEPPER_AXIS_PAN) {
             DL_TimerG_stopCounter(PAN_TIMER);
             DL_TimerG_setCaptureCompareValue(PAN_TIMER,
                 PERIOD_MAX, DL_TIMER_CC_0_INDEX);
             g_busy[axis] = false;
             DL_TimerG_clearInterruptStatus(PAN_TIMER, DL_TIMER_INTERRUPT_ZERO_EVENT);
+            g_current_dir[axis] = dir;  /* ★ ISR 门已关, 安全 */
             set_dir_pan(dir);
         } else {
             DL_TimerA_stopCounter(TILT_TIMER);
@@ -450,6 +452,7 @@ void stepper_pulse_set_speed(uint8_t axis, uint8_t dir, uint16_t rpm)
                 PERIOD_MAX, DL_TIMER_CC_2_INDEX);
             g_busy[axis] = false;
             DL_TimerA_clearInterruptStatus(TILT_TIMER, DL_TIMER_INTERRUPT_ZERO_EVENT);
+            g_current_dir[axis] = dir;  /* ★ ISR 门已关, 安全 */
             set_dir_tilt(dir);
         }
         /* 重启: tima/timg_config_pwm 内部会解冻 CCR=period/2 */
@@ -550,6 +553,15 @@ void stepper_pulse_emergency_stop(void)
 {
     /* ★ 先禁用 ISR 步数计数, 确保任何挂起的中断看到一致状态 */
     g_step_count_enabled = false;
+
+    /*
+     * ★ v8.1 CCP 冻结: 在停止计数器之前设 CCR=PERIOD_MAX,
+     *   输出锁死高电平 → 防止 mid-cycle 停止产生幽灵边沿
+     *   (与 stepper_pulse_stop 的停止序列一致).
+     *   先冻结再停, 不是先停再冻结, 否则 ~50% 概率产生伪边沿。
+     */
+    DL_TimerA_setCaptureCompareValue(TILT_TIMER, PERIOD_MAX, DL_TIMER_CC_2_INDEX);
+    DL_TimerG_setCaptureCompareValue(PAN_TIMER, PERIOD_MAX, DL_TIMER_CC_0_INDEX);
 
     DL_TimerA_stopCounter(TILT_TIMER);
     DL_TimerG_stopCounter(PAN_TIMER);

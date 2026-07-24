@@ -16,10 +16,10 @@
  */
 
 #include "app_imu_9dof.h"
-#include "mid_mpu6050.h"
-#include "mid_hmc5883l.h"
-#include "mid_qmc5883l.h"
-#include "delay.h"
+#include "drivers/mid_mpu6050.h"
+#include "drivers/mid_hmc5883l.h"
+#include "drivers/mid_qmc5883l.h"
+#include "drivers/delay.h"
 #include <math.h>
 #include <string.h>
 
@@ -65,7 +65,7 @@ static IMU_9DOF_Filter_t s_filter = {
     .alpha       = IMU_9DOF_DEFAULT_ALPHA,
     .alpha_yaw   = IMU_9DOF_DEFAULT_ALPHA_YAW,
     .dt          = IMU_9DOF_DEFAULT_DT,
-    .declination = -5.0f,     /**< 默认磁偏角 -5°（中国中东部近似值，需根据比赛地调整） */
+    .declination = 0.0f,     /**< 磁偏角由外部设置 (IMU_9DOF_SetDeclination 或 VisionTracking_Init) */
 };
 
 static IMU_9DOF_Calib_t s_calib = { 0 };

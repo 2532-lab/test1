@@ -131,9 +131,10 @@ extern "C" {
 /* 角度模式默认 RPM (适中速度, 兼顾精度和响应) */
 #define GIMBAL_ANGLE_DEFAULT_RPM       300
 
-/* 角度限位 (16细分: 3200 PPR, 0.1125°/步) */
-#define GIMBAL_PAN_ANGLE_MAX         180.0f
-#define GIMBAL_TILT_ANGLE_MAX        100.0f
+/* 角度限位 (与 stabilizer/vision 层和机械限位对齐: PAN ±170°, TILT ±90°)
+ * 16细分: 3200 PPR, 0.1125°/步 */
+#define GIMBAL_PAN_ANGLE_MAX         170.0f
+#define GIMBAL_TILT_ANGLE_MAX        90.0f
 #define GIMBAL_DEG_PER_REV           360.0f
 #define GIMBAL_ANGLE_DEADBAND         0.12f  /* 略大于单步精度 0.1125° */
 

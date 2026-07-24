@@ -11,7 +11,7 @@
  */
 
 #include "app_imu.h"
-#include "mid_mpu6050.h"
+#include "drivers/mid_mpu6050.h"
 #include <math.h>
 
 /* ============================================================================

@@ -65,7 +65,7 @@ extern "C" {
  * ========================================================================== */
 #define STEPPER_PULSE_DEFAULT_RPM       1200
 #define STEPPER_PULSE_MAX_RPM           3000//最高转速限制，高转速下力矩变小，有可能带不动载物，为了防止发生堵转，出现堵转就调小，调大：若红球移动极快，云台慢一拍，且此时电机并没有堵转
-#define STEPPER_PULSE_MIN_RPM             30
+#define STEPPER_PULSE_MIN_RPM             9
 #define STEPPER_PULSES_PER_REV          3200   /* 200 全步/转 × 16 细分 */
 #define STEPPER_STEP_DEG             0.1125f   /* 360° / 3200               */
 #define STEPPER_RPM_STOP                   0

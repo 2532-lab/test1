@@ -92,14 +92,17 @@ gimbal_axis_t gimbal_tilt = {
  * ========================================================================== */
 
 /**
- * @brief   将浮点值钳位到 [lo, hi] 区间。
+ * @brief   将浮点值钳位到 [lo, hi] 区间, NaN 安全。
  * @param   val   输入值。
  * @param   lo    下限。
  * @param   hi    上限。
- * @retval  钳位后的值。
+ * @retval  钳位后的值; NaN → lo (安全回退)。
  */
 static inline float clampf(float val, float lo, float hi)
 {
+    /* ★ NaN 守卫: NaN 与任何值比较均为 false, 会穿透 if-else 链原样返回,
+     *   污染下游计算。在此强制返回 lo。 */
+    if (val != val) return lo;
     if (val < lo) return lo;
     if (val > hi) return hi;
     return val;
@@ -202,6 +205,14 @@ void gimbal_control_angle(float pan_deg, float tilt_deg)
     uint8_t dir;
     uint16_t rpm;
 
+    /* ★ v7.1+v9 NaN 纵深防御 (双层):
+     *   Layer1 (此处): 入口显式拦截 NaN/Inf — 防御性编程, 即使 clampf 失效也安全
+     *   Layer2 (clampf L105): val!=val→lo, 同样拦截 NaN
+     *   两层独立防护, 任一有效即可保证安全。 */
+    if (pan_deg != pan_deg || tilt_deg != tilt_deg) return;
+    if (pan_deg > 1e8f || pan_deg < -1e8f) return;
+    if (tilt_deg > 1e8f || tilt_deg < -1e8f) return;
+
     /* ═══════════════════════════════════════════════════════════════════
      * PAN 轴 (水平)
      * ═══════════════════════════════════════════════════════════════════ */
@@ -226,13 +237,22 @@ void gimbal_control_angle(float pan_deg, float tilt_deg)
             rpm = gimbal_pan.rpm;
             if (rpm == 0) rpm = GIMBAL_ANGLE_DEFAULT_RPM;
 
+            /*
+             * ★ 5.5 提前读取当前位置 (必须在 stepper_pulse_move 之前!)
+             *
+             * 原因: stepper_pulse_move() 启动定时器后 ISR 可能在微秒内触发并更新
+             * g_position_steps。若读在 move 之后, ISR 已会计入若干步, 再加上
+             * 预测步数 → 位置被双重计数, 产生 ~1-2 步的累积偏移。
+             * 先读后发: pos 是下发时刻的确切位置, +预测步数 = 正确终止位置。
+             */
+            int32_t pos = stepper_pulse_get_position_steps(STEPPER_AXIS_PAN);
+
             /* ── 6. 下发运动 (非阻塞) ── */
             stepper_pulse_move(STEPPER_AXIS_PAN, dir, rpm, steps);
 
-            /* ── 7. 更新软件状态 (基于实际步进位置, 避免浮点舍入累积) ── */
+            /* ── 7. 更新软件状态 (基于下发时刻位置 + 预测步数) ── */
             gimbal_pan.target_angle = pan_deg;
             {
-                int32_t pos = stepper_pulse_get_position_steps(STEPPER_AXIS_PAN);
                 pos += (dir == STEPPER_DIR_CCW) ? (int32_t)steps : -(int32_t)steps;
                 gimbal_pan.angle = (float)pos * GIMBAL_DEG_PER_REV
                                    / (float)STEPPER_PULSES_PER_REV;
@@ -264,13 +284,18 @@ void gimbal_control_angle(float pan_deg, float tilt_deg)
             rpm = gimbal_tilt.rpm;
             if (rpm == 0) rpm = GIMBAL_ANGLE_DEFAULT_RPM;
 
+            /*
+             * ★ 5.5 提前读取当前位置 (必须在 stepper_pulse_move 之前!)
+             *    理由同 PAN 轴注释 — 防 ISR 竞态导致位置双重计数。
+             */
+            int32_t pos = stepper_pulse_get_position_steps(STEPPER_AXIS_TILT);
+
             /* ── 6. 下发运动 (非阻塞) ── */
             stepper_pulse_move(STEPPER_AXIS_TILT, dir, rpm, steps);
 
-            /* ── 7. 更新软件状态 (基于实际步进位置, 避免浮点舍入累积) ── */
+            /* ── 7. 更新软件状态 (基于下发时刻位置 + 预测步数) ── */
             gimbal_tilt.target_angle = tilt_deg;
             {
-                int32_t pos = stepper_pulse_get_position_steps(STEPPER_AXIS_TILT);
                 pos += (dir == STEPPER_DIR_CCW) ? (int32_t)steps : -(int32_t)steps;
                 gimbal_tilt.angle = (float)pos * GIMBAL_DEG_PER_REV
                                     / (float)STEPPER_PULSES_PER_REV;

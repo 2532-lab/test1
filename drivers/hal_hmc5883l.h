@@ -21,15 +21,16 @@
 /** HMC5883L 7-bit I2C 地址 */
 #define HMC5883L_ADDR_7BIT       0x1E
 
-/** I2C 外设实例（与 MPU6050 共享 I2C1） */
-#define HMC_I2C_INST             I2C1
+/** I2C 外设实例（与 MPU6050 共享 I2C1, 引用 SysConfig 宏） */
+#define HMC_I2C_INST             I2C_1_INST
 
 /** I2C 等待超时（循环次数） */
 #define HMC_I2C_TIMEOUT          200000UL
 
-/** DRDY 引脚（PA13）：磁力计数据就绪，高电平有效 */
-#define HMC_DRDY_PORT            GPIOA
-#define HMC_DRDY_PIN             DL_GPIO_PIN_13
+/** DRDY 引脚（PA13）：磁力计数据就绪，高电平有效
+ * ★ 引用 SysConfig 生成宏, 不要臆造引脚编号 */
+#define HMC_DRDY_PORT            GPIO_MPU_INT_DRDY_PORT
+#define HMC_DRDY_PIN             GPIO_MPU_INT_DRDY_PIN
 
 /* ============================================================================
  *  API
