@@ -15,10 +15,10 @@ extern volatile uint32_t sys_tick_ms;
  * @brief   毫秒级阻塞延时 (基于 SysTick 计数器)。
  * @param   ms   延时毫秒数。
  * @note    使用忙等 (不依赖 WFE) — 避免 CCS 调试时 SysTick 暂停导致 WFE 永久睡眠,
- *          也避免 Cortex-M0+ WFE 事件寄存器竞态。
+ *          也避免 Cortex-M0+ WFE 事件寄存器竞争。
  * @note    必须在 SysTick_Config() 之后才能使用。
  * @note    CCS 调试时如 SysTick 被暂停, 本函数仍会卡住 —
- *          请配置 CCS: Debug Properties → MSPM0 → 取消 "Halt SysTick during debug"。
+ *          请在 CCS 的 MSPM0 调试属性中取消“调试时暂停 SysTick”选项。
  */
 void delay_ms(uint32_t ms)
 {

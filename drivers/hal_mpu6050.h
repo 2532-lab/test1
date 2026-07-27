@@ -48,7 +48,7 @@
 /** I2C 外设实例（需在 SysConfig 中添加 I2C1） */
 #define MPU_I2C_INST            I2C_1_INST
 
-/** MPU6050 I2C 器件地址（7 位，AD0=0 时默认地址 0x68） */
+/** MPU6050 I2C 器件地址（7 位，AD0=0 时地址为 0x68） */
 #define MPU6050_ADDR_7BIT       0x68
 
 /* ============================================================================
@@ -85,7 +85,7 @@ typedef void (*HAL_MPU_IntCallback_t)(void);
  *
  * 完成以下工作：
  *   1. 使能 I2C1 控制器，设定通信速率（约 400kHz）
- *   2. 使能 I2C 时钟延展（clock stretching）
+ *   2. 使能 I2C 时钟延展
  *   3. 使能数字毛刺滤波器（125 ns @ 32 MHz BUSCLK）
  *   4. 配置 PB24 为 GPIO 数字输入（INT 引脚）
  *

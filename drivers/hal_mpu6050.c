@@ -6,7 +6,7 @@
  * 读写操作采用两段式传输：先写寄存器地址（TX），
  * 等待完成后发起读数据（RX），之间由 I2C STOP/START 分隔。
  *
- * SysConfig vs. HAL 职责划分：
+ * SysConfig 与 HAL 的职责划分：
  *   SysConfig（SYSCFG_DL_I2C_1_init）→ 时钟源、模拟毛刺滤波、引脚 IOMUX
  *   本层（HAL_MPU6050_Init）         → 波特率、时钟延展、数字毛刺滤波、控制器使能
  */
@@ -18,7 +18,7 @@
  * ============================================================================ */
 
 /** INT 引脚中断回调函数指针（静态分配，单例）
- *  ★ volatile: ISR (GROUP1_IRQHandler) 读取此变量,
+ *  ★ volatile：ISR (GROUP1_IRQHandler) 读取此变量，
  *    主循环 (HAL_MPU6050_SetIntCallback) 写入此变量 */
 static volatile HAL_MPU_IntCallback_t s_int_callback = NULL;
 
@@ -86,7 +86,7 @@ void HAL_MPU6050_Init(void)
      */
     DL_I2C_setTimerPeriod(MPU_I2C_INST, 36);
 
-    /* 使能时钟延展（clock stretching），MPU6050 在部分寄存器访问时需要 */
+    /* 使能时钟延展，MPU6050 在部分寄存器访问时需要。 */
     DL_I2C_enableControllerClockStretching(MPU_I2C_INST);
 
     /* 使能 I2C 控制器 */
@@ -109,7 +109,7 @@ void HAL_MPU6050_Init(void)
 
     /* ---- INT 引脚初始化 ----
      *
-     * PB24 IOMUX + 上拉：SysConfig (GPIO_MPU_INT) 管理
+     * PB24 IOMUX 和上拉：由 SysConfig (GPIO_MPU_INT) 管理
      * 中断极性 + NVIC：HAL 层手动控制
      */
     /* 配置中断极性：上升沿触发（INT: LOW→HIGH = 数据就绪） */

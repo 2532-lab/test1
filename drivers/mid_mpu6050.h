@@ -263,7 +263,7 @@ bool MID_MPU6050_ReadRaw(MPU6050_RawData_t *raw);
 
 /**
  * @brief   获取当前配置句柄
- * @return  const pointer to MPU6050_Config_t
+ * @return  指向 MPU6050_Config_t 的常量指针
  */
 const MPU6050_Config_t *MID_MPU6050_GetConfig(void);
 
@@ -274,7 +274,7 @@ const MPU6050_Config_t *MID_MPU6050_GetConfig(void);
 uint8_t MID_MPU6050_GetDeviceID(void);
 
 /**
- * @brief   执行自检 (Self-Test)
+ * @brief   执行自检
  *
  * 读取 6 个自检寄存器，计算陀螺仪和加速度计的自检响应。
  * 用于验证传感器是否正常工作。
@@ -309,8 +309,8 @@ bool MID_MPU6050_SetDLPF(MPU6050_DLPFBandwidth_t bw);
 /**
  * @brief   设置采样分频系数
  * @param   div  分频值（0~255）
- *               SampleRate = GyroOutputRate / (1 + div)
- *               GyroOutputRate = 1kHz (DLPF 开启) 或 8kHz (DLPF 关闭)
+ *               采样率 = 陀螺仪输出速率 / (1 + div)
+ *               陀螺仪输出速率 = 1kHz（DLPF 开启）或 8kHz（DLPF 关闭）
  * @return  true = 成功
  */
 bool MID_MPU6050_SetSampleDiv(uint8_t div);

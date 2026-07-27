@@ -1,1 +1,0 @@
-ADC：Name:ADC1； 软件触发； ADC1：PA15

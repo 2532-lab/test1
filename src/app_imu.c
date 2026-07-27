@@ -210,7 +210,7 @@ bool IMU_Update(IMU_Data_t *data)
     float gyro_y = (float)raw.gyro_y / cfg->gyro_scale - s_calib.gyro_offset_y;
     float gyro_z = (float)raw.gyro_z / cfg->gyro_scale - s_calib.gyro_offset_z;
 
-    /* 温度——burst 读已包含 temp 字段，无需额外 I2C 事务 */
+    /* 温度：突发读取已包含 temp 字段，无需额外 I2C 事务。 */
     float temp = (float)raw.temp / MPU6050_TEMP_SCALE + MPU6050_TEMP_OFFSET;
 
     /* ---- 2. 加速度计计算 Roll/Pitch ---- */
